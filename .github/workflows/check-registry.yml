@@ -1,0 +1,59 @@
+# Contrôle du journal des déclarations, à chaque push et à chaque pull request.
+# Toute la logique est dans ofceweb::check_registry() ; ce workflow ne fait que
+# lister les fichiers supprimés et appeler ofceweb::check_registry_ci().
+
+name: Contrôle du journal
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check-registry:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Lister les fichiers supprimés de registry/
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            range="$PR_BASE...$PR_HEAD"
+          elif [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            # Première poussée d'une branche : rien à comparer.
+            : > deleted.txt
+            exit 0
+          elif ! git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            echo "::error::Commit précédent $PUSH_BEFORE introuvable (push forcé ?) : impossible de vérifier qu'aucune déclaration n'a été supprimée."
+            exit 1
+          else
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          git diff --no-renames --name-only --diff-filter=D "$range" -- registry/ > deleted.txt
+          cat deleted.txt
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            github::ofceweb/ofceweb@op-4134-contentdb
+            any::jsonvalidate
+
+      - name: Contrôler le journal
+        run: ofceweb::check_registry_ci(".", "deleted.txt")
+        shell: Rscript {0}
