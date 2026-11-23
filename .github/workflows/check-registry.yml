@@ -51,7 +51,7 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: |
-            github::ofceweb/ofceweb@op-4134-contentdb
+            github::ofceweb/ofceweb@main
             any::jsonvalidate
 
       - name: Contrôler le journal
